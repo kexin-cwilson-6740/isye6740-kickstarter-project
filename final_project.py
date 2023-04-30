@@ -10,6 +10,15 @@ from sklearn.decomposition import PCA
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import mutual_info_classif
 
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from sklearn.naive_bayes import GaussianNB
+from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import mean_squared_error, r2_score
+
 file = "data/ks-projects-201801.csv"
 
 raw = pd.read_csv(file)
@@ -24,7 +33,7 @@ plt.show()
 def clean_data(data):
 
     df = data.copy()
-    
+
     # Remove any rows where there are NaN values
     df = df.dropna()
 
@@ -39,7 +48,7 @@ def clean_data(data):
     df = df.loc[:, df.columns != 'goal']
     df = df.loc[:, df.columns != 'pledged']
     df = df.loc[:, df.columns != 'usd pledged']
-    
+
     # Add difference between launched and deadline as project_length_days and remove launched and deadline
     df['project_length_days'] = (pd.to_datetime(df['deadline']) - pd.to_datetime(df['launched'])).dt.days
     df = df.loc[:, df.columns != 'launched']
@@ -49,7 +58,7 @@ def clean_data(data):
     le = preprocessing.LabelEncoder()
     df['category'] = le.fit_transform(df['category'])
     df['main_category'] = le.fit_transform(df['main_category'])
-    
+
 
     # Possible 'state' values
     # 'failed', 'canceled', 'successful', 'live', 'suspended'
@@ -110,6 +119,190 @@ print(x_train_fs)
 plt.bar([i for i in range(len(fs.scores_))], fs.scores_)
 plt.show()
 
-pca = PCA(n_components=2)
-pca.fit(x_train)
+#pca = PCA(n_components=2)
+#pca.fit(x_train)
 #print(pca.transform(x))
+
+
+
+df_num = data.drop(['name'],axis=1)
+
+# Define the feature matrix X and target variable y
+y = df_num['state']
+y=y.astype('int')
+X = df_num.drop(['state'], axis=1)
+X2=X
+
+# Downsample dataset
+# Get the number of rows in the original dataset
+total_rows = X2.shape[0]
+sample_size = 5000
+# Generate a random sample of row indices
+sample_indices = np.random.choice(total_rows, size=sample_size, replace=False)
+
+# Use the sample indices to select the corresponding rows from the original dataset
+
+df_X = pd.DataFrame(X2)
+df_y = pd.DataFrame(y)
+
+sampled_df = df_X.iloc[sample_indices]
+sampled_y = df_y.iloc[sample_indices]
+
+sampled_y = sampled_y.values.reshape(-1)
+X_train, X_test, y_train, y_test = train_test_split(sampled_df, sampled_y, test_size=0.25, random_state=42)
+
+
+# Define SVM model with a linear kernel - note: SVM is taking too long to compute
+#model = SVC(kernel='linear',probability=False)
+
+
+# fitting neural network
+
+# define the weights:
+reg_strengths = [0.001,0.01,0.1,1,10]
+models = []
+for strength in reg_strengths:
+    model = MLPClassifier(hidden_layer_sizes=(10,), max_iter=1000, alpha=strength)
+    models.append(model)
+
+# train the model and record error:
+n_epochs = 100
+n_classes = np.unique(y_train)
+train_error = np.zeros((len(reg_strengths), n_epochs))
+test_error = np.zeros((len(reg_strengths), n_epochs))
+for i, model in enumerate(models):
+    for j in range(n_epochs):
+        model.partial_fit(X_train, y_train,classes=n_classes)
+        train_error[i, j] = 1-model.score(X_train, y_train)
+        test_pred = model.predict(X_test)
+        test_error[i, j] = 1-accuracy_score(y_test, test_pred)
+
+plt.figure(figsize=(10, 6))
+#fig, axs = plt.subplots(6)
+#fig, ax = plt.subplots()
+
+for i, strength in enumerate(reg_strengths):
+    plt.plot(np.arange(n_epochs), train_error[i], label='Train (decay={})'.format(strength))
+    plt.plot(np.arange(n_epochs), test_error[i], label='Test (decay={})'.format(strength))
+    plt.ylabel('Error')
+    plt.legend()
+    plt.xlabel('Epoch')
+    plt.show()
+
+# use alpha = 1
+# redefine the models and search for best hidden layer parameter:
+
+models = []
+for unit in range(100):
+    model = MLPClassifier(hidden_layer_sizes=(unit+1,), activation='relu', max_iter=10000, alpha=1)
+    models.append(model)
+
+test_errors = np.zeros(100)
+for i, model in enumerate(models):
+    model.fit(X_train, y_train)
+    test_pred = model.predict(X_test)
+    test_errors[i] = 1-accuracy_score(y_test, test_pred)
+plt.figure(figsize=(10, 6))
+
+plt.plot(test_errors)
+plt.ylabel('Error')
+plt.xlabel('Unit')
+plt.show()
+
+# Based on the plots above, the parameters for neural networks are:
+# alpha = 1
+# hidden layer = 5
+
+# fit the Random Forest model
+rf = RandomForestClassifier(random_state = 42)
+
+from sklearn.model_selection import RandomizedSearchCV
+# Number of trees in random forest
+n_estimators = [int(x) for x in np.linspace(start = 1, stop = 200, num = 10)]
+# Number of features to consider at every split
+max_features = ['auto', 'sqrt']
+# Maximum number of levels in tree
+max_depth = [int(x) for x in np.linspace(1, 110, num = 11)]
+max_depth.append(None)
+# Minimum number of samples required to split a node
+min_samples_split = [2, 5, 10]
+# Minimum number of samples required at each leaf node
+min_samples_leaf = [1, 2, 4]
+# Method of selecting samples for training each tree
+bootstrap = [True, False]# Create the random grid
+random_grid = {'n_estimators': n_estimators,
+               'max_features': max_features,
+               'max_depth': max_depth,
+               'min_samples_split': min_samples_split,
+               'min_samples_leaf': min_samples_leaf,
+               'bootstrap': bootstrap}
+
+
+# Use the random grid to search for best hyperparameters
+# First create the base model to tune
+rf = RandomForestClassifier()
+# Random search of parameters, using 3 fold cross validation,
+# search across 100 different combinations, and use all available cores
+rf_random = RandomizedSearchCV(estimator = rf, param_distributions = random_grid, n_iter = 100, cv = 3, verbose=2, random_state=42, n_jobs = -1)
+# Fit the random search model
+rf_random.fit(X_train, y_train)
+rf_random.best_params_
+
+def evaluate(model, test_features, test_labels):
+    predictions = model.predict(test_features)
+    accuracy = model.score(test_features,test_labels)
+    #print("predictions are", predictions)
+    print(model,'Model Performance')
+    print('Accuracy = {:0.4f}.'.format(accuracy))
+
+    return accuracy
+
+base_model = RandomForestClassifier(random_state = 42)
+base_model.fit(X_train, y_train)
+base_accuracy = evaluate(base_model, X_test, y_test)
+
+best_random = rf_random.best_estimator_
+random_accuracy = evaluate(best_random, X_test, y_test)
+
+gnb = GaussianNB()
+rf = RandomForestClassifier()
+lgr = LogisticRegression(random_state=0)
+nn = MLPClassifier(alpha=1, hidden_layer_sizes=5,max_iter=100)
+
+from sklearn.model_selection import LearningCurveDisplay, ShuffleSplit
+
+fig, ax = plt.subplots(nrows=1, ncols=4, figsize=(15, 6),sharey=True)
+
+common_params = {
+    "X": X_train,
+    "y": y_train,
+    "train_sizes": np.linspace(0.1, 1.0, 5),
+    "cv": ShuffleSplit(n_splits=50, test_size=0.2, random_state=0),
+    "score_type": "both",
+    "n_jobs": 4,
+    "line_kw": {"marker": "o"},
+    "std_display_style": "fill_between",
+    "score_name": "Accuracy",
+}
+
+for ax_idx, estimator in enumerate([gnb,lgr,rf,nn]):
+    LearningCurveDisplay.from_estimator(estimator, **common_params, ax=ax[ax_idx])
+    handles, label = ax[ax_idx].get_legend_handles_labels()
+    ax[ax_idx].legend(handles[:2], ["Training Score", "Test Score"])
+    ax[ax_idx].set_title(f"{estimator.__class__.__name__}")
+    ax[ax_idx].set_xlabel("Training samples")
+
+# Linear regression
+y_lr = X['usd_pledged_real']
+x_lr = X.drop(['usd_pledged_real'],axis=1)
+
+X_train, X_test, y_train, y_test = train_test_split(x_lr, y_lr, test_size=0.25, random_state=42)
+
+regr = LinearRegression().fit(X_train, y_train)
+y_pred = regr.predict(X_test)
+# The coefficients
+print("Coefficients: \n", regr.coef_)
+# The mean squared error
+print("Mean squared error: %.2f" % mean_squared_error(y_test, y_pred))
+# The coefficient of determination: 1 is perfect prediction
+print("Coefficient of determination: %.2f" % r2_score(y_test, y_pred))
