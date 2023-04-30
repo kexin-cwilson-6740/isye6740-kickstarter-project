@@ -229,7 +229,8 @@ min_samples_split = [2, 5, 10]
 # Minimum number of samples required at each leaf node
 min_samples_leaf = [1, 2, 4]
 # Method of selecting samples for training each tree
-bootstrap = [True, False]# Create the random grid
+bootstrap = [True, False]
+# Create the random grid
 random_grid = {'n_estimators': n_estimators,
                'max_features': max_features,
                'max_depth': max_depth,
@@ -267,7 +268,7 @@ random_accuracy = evaluate(best_random, X_test, y_test)
 gnb = GaussianNB()
 rf = RandomForestClassifier()
 lgr = LogisticRegression(random_state=0)
-nn = MLPClassifier(alpha=1, hidden_layer_sizes=5,max_iter=100)
+nn = MLPClassifier(alpha=1, hidden_layer_sizes=5,max_iter=10000)
 
 from sklearn.model_selection import LearningCurveDisplay, ShuffleSplit
 
@@ -291,6 +292,7 @@ for ax_idx, estimator in enumerate([gnb,lgr,rf,nn]):
     ax[ax_idx].legend(handles[:2], ["Training Score", "Test Score"])
     ax[ax_idx].set_title(f"{estimator.__class__.__name__}")
     ax[ax_idx].set_xlabel("Training samples")
+plt.show()
 
 # Linear regression
 y_lr = X['usd_pledged_real']
